@@ -1,0 +1,13 @@
+[package]
+name = "tc-snapshot"
+description = "Versioned binary snapshot format and snapshot diffing."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

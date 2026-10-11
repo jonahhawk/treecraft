@@ -1,0 +1,13 @@
+[package]
+name = "tc-model"
+description = "Arena-based file tree model with size aggregation (no I/O)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

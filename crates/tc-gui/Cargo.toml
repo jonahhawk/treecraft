@@ -1,0 +1,18 @@
+[package]
+name = "tc-gui"
+description = "Treecraft desktop GUI."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "treecraft-gui"
+path = "src/main.rs"
+
+# egui/eframe are added in milestone M3.
+[dependencies]
+
+[lints]
+workspace = true

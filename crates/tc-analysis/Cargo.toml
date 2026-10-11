@@ -1,0 +1,13 @@
+[package]
+name = "tc-analysis"
+description = "Analyses over a scanned tree: extensions, age, top-N, owners, search, duplicates."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true
