@@ -11,8 +11,15 @@ publish.workspace = true
 name = "treecraft-gui"
 path = "src/main.rs"
 
-# egui/eframe are added in milestone M3.
 [dependencies]
+chrono.workspace = true
+eframe.workspace = true
+egui_extras.workspace = true
+tc-analysis.workspace = true
+tc-model.workspace = true
+tc-scan.workspace = true
+tc-scan-win.workspace = true
+trash.workspace = true
 
 [lints]
 workspace = true

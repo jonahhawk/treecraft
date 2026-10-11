@@ -4,6 +4,14 @@ Goal: a Windows-first disk space analyzer with roughly the capabilities of TreeS
 (JAM Software), built from scratch in Rust under a clean-room process. It runs on Linux and macOS
 too, but some features are Windows-only.
 
+**Progress (2026-10-11):** M0 is done, and so is the MVP: M1, M2, M3 and the treemap part of M4.
+Measured on this machine with a warm cache: a scan of 896k entries takes about 3.4 s in both
+the CLI and the GUI (roughly 260k entries/s), and throughput levels off at 8 threads.
+Deviation from M2's exit criterion: the Win32 scanner is not faster than `std::fs` on Windows
+(both use directory listings without opening files). It is still the default because it
+reports real allocated sizes. Next up: M5 (MFT scanner), or M6/M7 if features matter more
+than speed.
+
 ---
 
 ## 0. Clean-room ground rules (do this first)

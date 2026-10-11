@@ -14,6 +14,13 @@ path = "src/main.rs"
 [dependencies]
 anyhow.workspace = true
 clap.workspace = true
+serde_json.workspace = true
+tc-model.workspace = true
+tc-scan.workspace = true
+tc-scan-win.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -8,6 +8,18 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+tc-model.workspace = true
+tc-scan.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true
 
 [lints]
 workspace = true

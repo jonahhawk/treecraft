@@ -8,6 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+tc-model.workspace = true
 
 [lints]
 workspace = true

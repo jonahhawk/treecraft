@@ -11,3 +11,8 @@ Not allowed: decompiled or disassembled code, copied UI text, icons, help text o
 
 | Date | Source | URL | Used for |
 |---|---|---|---|
+| 2026-10-11 | Microsoft Learn: GetFileInformationByHandleEx, FILE_ID_BOTH_DIR_INFO | https://learn.microsoft.com/windows/win32/api/winbase/nf-winbase-getfileinformationbyhandleex | Win32 directory lister |
+| 2026-10-11 | Microsoft Learn: reparse point tags and IsReparseTagNameSurrogate | https://learn.microsoft.com/windows/win32/fileio/reparse-point-tags | Deciding which reparse points are links |
+| 2026-10-11 | Microsoft Learn: file attribute constants (RECALL_ON_DATA_ACCESS etc.) | https://learn.microsoft.com/windows/win32/fileio/file-attribute-constants | Cloud placeholder detection |
+| 2026-10-11 | Microsoft Learn: maximum path length limitation | https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation | `\\?\` long-path handling |
+| 2026-10-11 | Bruls, Huizing, van Wijk, "Squarified Treemaps" (2000) | https://www.win.tue.nl/~vanwijk/stm.pdf | Treemap layout algorithm |

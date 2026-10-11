@@ -1,6 +1,24 @@
-//! Treecraft desktop GUI. Placeholder until milestone M3.
+//! Treecraft desktop GUI.
 
-fn main() {
-    eprintln!("treecraft-gui is not implemented yet (milestone M3)");
-    std::process::exit(1);
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
+mod app;
+mod platform;
+mod tree_view;
+mod treemap_view;
+
+fn main() -> eframe::Result {
+    let initial_path = std::env::args_os().nth(1).map(std::path::PathBuf::from);
+    let options = eframe::NativeOptions {
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_title("Treecraft")
+            .with_inner_size([1280.0, 800.0])
+            .with_min_inner_size([640.0, 400.0]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "Treecraft",
+        options,
+        Box::new(move |_cc| Ok(Box::new(app::App::new(initial_path)))),
+    )
 }

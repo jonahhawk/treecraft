@@ -94,3 +94,12 @@ Exit code 0 on success, 1 on error, 2 when a `--fail-if-larger` threshold is exc
 ## 9. Platforms
 Windows 10/11 x64 is first-class. ARM64 Windows, Linux and macOS use the portable scanner and get
 every feature that doesn't depend on Windows APIs.
+
+## Known limitations (MVP)
+
+- The Win32 scanner reads sizes from directory listings, which don't include link counts, so a
+  hard-linked file is counted under each of its names. The portable scanner deduplicates hard
+  links on Linux and macOS. The MFT scanner (M5) will fix this on Windows.
+- Space used by directory indexes and NTFS metadata is not counted.
+- Deleting is disabled while a scan is running, because removing a subtree mid-scan would let
+  the scanner add totals back for it.
