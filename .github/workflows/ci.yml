@@ -18,7 +18,7 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -33,15 +33,16 @@ jobs:
   deny:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: EmbarkStudios/cargo-deny-action@v2
 
   # A short fuzz run of the NTFS parser on every change; long runs are done by hand.
   fuzz:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
+      # rust-toolchain.toml pins stable, so the fuzz commands ask for nightly explicitly.
       - uses: dtolnay/rust-toolchain@nightly
       - run: cargo install cargo-fuzz --locked
-      - run: cargo fuzz run ntfs_record -- -max_total_time=60
-      - run: cargo fuzz run ntfs_runlist -- -max_total_time=30
+      - run: cargo +nightly fuzz run ntfs_record -- -max_total_time=60
+      - run: cargo +nightly fuzz run ntfs_runlist -- -max_total_time=30
