@@ -5,7 +5,8 @@ Goal: a Windows-first disk space analyzer with roughly the capabilities of TreeS
 too, but some features are Windows-only.
 
 **Progress (2026-10-11):** M0 is done, and so is the MVP: M1, M2, M3 and the treemap part of M4.
-Measured on this machine (8 cores, SSD, warm cache) on a 897k-entry profile folder:
+M5 is done except the 24 h fuzz run. Measured on this machine (8 cores, SSD, warm cache) on a
+897k-entry profile folder:
 
 - Scan: 3.2–3.3 s with either scanner at normal priority (about 275k entries/s); throughput
   levels off at 8 threads. Benchmarks: `tc-scan-win/examples/scan_bench.rs` and `open_cost.rs`.
@@ -33,28 +34,42 @@ by full path saves only about 9% (9.3 s vs 8.5 s for 97,807 opens, `examples/rel
 the cost is in the kernel's open path itself, not in path parsing. Whole-volume shortcuts are
 closed to standard users: opening `\\.\C:` for reading is denied, and on a handle opened with
 fewer rights `FSCTL_GET_NTFS_VOLUME_DATA` and `FSCTL_ENUM_USN_DATA` fail and raw reads are
-denied (`examples/volume_access.rs`). The 3×
-goal moves to M5: the MFT scanner reads the file table instead of opening directories (it needs
+denied (`examples/volume_access.rs`). The 3× goal moved to M5, where the MFT scanner meets it
+(3.5×, see below) by reading the file table instead of opening directories (it needs
 administrator rights). Without administrator rights the Win32 scanner is used, because it
 reports real allocated sizes and counts hard links once.
 
-**M5 (MFT scanner), in progress:** written but not yet run against a real volume, because that
-needs an elevated session.
+**M5 (MFT scanner): done except the 24 h fuzz run.** On all of C:\ (1.54M entries, 3.68 GB
+MFT, warm cache, median of 3) the MFT scanner takes 1.95 s and the Win32 scanner 6.74 s, so it is
+3.5× faster.
 - `tc-ntfs` has a pure, `forbid(unsafe_code)` parser for boot sectors, fixups, FILE records,
   attributes, attribute lists and runlists. Its 12 unit tests use hand-built records, and
   20,000 randomly corrupted records produce errors without panicking.
-- `tc-scan-win/src/mft.rs` reads `$MFT` in 8 MiB chunks on a reader thread, parses them in
-  parallel and builds the tree breadth-first. If the MFT scan fails, the scan continues with
-  the Win32 scanner and the error list says why.
+- `tc-scan-win/src/mft.rs` reads `$MFT` in 8 MiB windows with 4 reader threads, parses them in
+  parallel and builds the tree breadth-first. It builds each batch's entries in parallel and holds
+  the write lock only to insert them. If the MFT scan fails, the scan continues with the Win32
+  scanner and the error list says why.
+- Windows whose records are all free in `$MFT`'s `$BITMAP` are skipped. This MFT once grew to
+  3.86M records and holds 1.5M now, so 291 of 471 windows are skipped (8.7 s → 2.8 s). Reads then
+  run at about 1.3 GB/s; the drive's limit, measured with `examples/volume_read_cost.rs`, is
+  1.6 GB/s buffered or unbuffered, with one thread or four.
+- Raw reads of the MFT make NTFS first write out the records they cover. After a directory scan
+  (last-access updates are on) that costs 1–4 s, and it hits whichever MFT scan comes next.
+  `scan_bench` flushes the volume and times that separately (`mft-flush`, 4.2 s on C:\).
+- Differential tests (`tc-scan-win/tests/mft.rs`) pass elevated. Resident files now report their
+  data length rounded up to 8 as allocated, as Windows does. `examples/mft_diff.rs` compares both
+  scanners on any folder. On C:\ they find the same 1,320,366 files; 28,106 hard-linked files are
+  counted under a different name, which is fine. 191 files differ by 100 MB in all, every one a
+  file open for writing (logs, `-wal`, `.etl`, temp files) or a hard link reached through another
+  name. The Win32 scanner reads sizes from the directory index, which NTFS updates only when the
+  handle closes, so in those cases the MFT size is the current one.
 - `--scanner auto` and the GUI's Auto choice use the MFT when elevated on a local NTFS drive.
   The GUI has a "Run as admin" button (UAC relaunch).
 - `cargo-fuzz` targets are in `fuzz/`. Local runs found no crashes: 15.1M records in 5 minutes
   and 5.9M runlists in 2 minutes. CI runs each target briefly.
-- Still open, all needing an elevated run:
-  - `tc-scan-win/tests/mft.rs`: differential tests against the Win32 scanner. They skip
-    themselves without administrator rights.
-  - The C:\ benchmark (`scan_bench` includes `mft` when elevated).
-  - The 24 h fuzz run.
+- Still open: the 24 h fuzz run.
+- Elevated Git Bash enables the backup privilege, which bypasses ACLs, so the access-denied edge
+  case skips itself when the deny doesn't take effect.
 
 ---
 

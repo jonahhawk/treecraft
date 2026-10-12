@@ -16,6 +16,7 @@ pub mod attr {
     pub const ATTRIBUTE_LIST: u32 = 0x20;
     pub const FILE_NAME: u32 = 0x30;
     pub const DATA: u32 = 0x80;
+    pub const BITMAP: u32 = 0xB0;
     pub const REPARSE_POINT: u32 = 0xC0;
     pub const END: u32 = 0xFFFF_FFFF;
 }
@@ -513,7 +514,8 @@ pub struct FileSummary {
     pub attributes: u32,
     /// Logical size of the unnamed data stream.
     pub size: u64,
-    /// Bytes allocated on disk for the unnamed data stream (0 if resident).
+    /// Bytes allocated on disk for the unnamed data stream. For resident data this is the value
+    /// length rounded up to 8 bytes, which is what Windows reports for such files.
     pub allocated: u64,
     /// Logical size of all named data streams (alternate data streams).
     pub stream_size: u64,
@@ -545,7 +547,7 @@ impl FileSummary {
                 }
                 (attr::DATA, body) => {
                     let (size, allocated) = match body {
-                        Body::Resident(v) => (v.len() as u64, 0),
+                        Body::Resident(v) => (v.len() as u64, (v.len() as u64).next_multiple_of(8)),
                         // Only the first extent of a multi-record attribute carries sizes.
                         Body::NonResident(n) if n.start_vcn == 0 => {
                             (n.data_size, n.total_allocated.unwrap_or(n.allocated_size))

@@ -39,7 +39,7 @@ treecraft scan C:\ --scanner mft                 # read the MFT (administrator t
 |---|---|
 | `crates/tc-model` | Arena-based file tree and size aggregation |
 | `crates/tc-scan` | Scanner trait and portable parallel walker |
-| `crates/tc-scan-win` | Windows scanners (Win32 enumeration; MFT and USN later) and drive list |
+| `crates/tc-scan-win` | Windows scanners (Win32 enumeration and MFT; USN later) and drive list |
 | `crates/tc-ntfs` | Pure NTFS structure parser (milestone M5) |
 | `crates/tc-analysis` | Treemap layout; later extensions, age, top-N, search, duplicates |
 | `crates/tc-snapshot` | Snapshot format and diffing (milestone M6) |

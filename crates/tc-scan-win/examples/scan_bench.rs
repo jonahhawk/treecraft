@@ -62,24 +62,63 @@ fn main() {
             with_lister(|| Box::new(Win32Lister::with_both_dir_info())),
         ));
         match mft_unavailable_reason(&root) {
-            None => scanners.push((
-                "mft",
-                Box::new(|root, opts| {
-                    let tree = SharedTree::new(new_tree(root).expect("bad root"));
-                    let started = start(tree.clone(), ScannerKind::Mft, opts.clone())
-                        .expect("MFT scanner unavailable");
-                    let stats = started.handle.join();
-                    let t = tree.read();
-                    let n = t.node(t.root());
-                    Outcome {
-                        secs: stats.elapsed.as_secs_f64(),
-                        entries: stats.entries,
-                        files: n.files(),
-                        size: n.size(),
-                        errors: stats.errors,
-                    }
-                }),
-            )),
+            None => scanners.extend([
+                (
+                    // Raw reads of the MFT make NTFS first write out the records they cover, such
+                    // as the last-access times the scans before just updated. Flush the volume
+                    // here, timed on its own, so that cost doesn't count against the MFT scanner.
+                    "mft-flush",
+                    Box::new(|root: &Path, _: &ScanOptions| {
+                        use std::os::windows::fs::OpenOptionsExt;
+                        use std::path::{Component, Prefix};
+
+                        use windows_sys::Win32::Storage::FileSystem::{
+                            FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+                        };
+                        let letter = match root.components().next() {
+                            Some(Component::Prefix(p)) => match p.kind() {
+                                Prefix::Disk(l) | Prefix::VerbatimDisk(l) => l as char,
+                                _ => panic!("mft-flush needs a drive letter root"),
+                            },
+                            _ => panic!("mft-flush needs a drive letter root"),
+                        };
+                        let t = std::time::Instant::now();
+                        // Flushing a volume needs write access to it; nothing is written.
+                        let volume = std::fs::OpenOptions::new()
+                            .read(true)
+                            .write(true)
+                            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
+                            .open(format!(r"\\.\{letter}:"))
+                            .expect("open the volume");
+                        volume.sync_all().expect("flush the volume");
+                        Outcome {
+                            secs: t.elapsed().as_secs_f64(),
+                            entries: 0,
+                            files: 0,
+                            size: 0,
+                            errors: 0,
+                        }
+                    }) as Scanner,
+                ),
+                (
+                    "mft",
+                    Box::new(|root, opts| {
+                        let tree = SharedTree::new(new_tree(root).expect("bad root"));
+                        let started = start(tree.clone(), ScannerKind::Mft, opts.clone())
+                            .expect("MFT scanner unavailable");
+                        let stats = started.handle.join();
+                        let t = tree.read();
+                        let n = t.node(t.root());
+                        Outcome {
+                            secs: stats.elapsed.as_secs_f64(),
+                            entries: stats.entries,
+                            files: n.files(),
+                            size: n.size(),
+                            errors: stats.errors,
+                        }
+                    }),
+                ),
+            ]),
             Some(reason) => println!("mft scanner skipped: {reason}"),
         }
     }

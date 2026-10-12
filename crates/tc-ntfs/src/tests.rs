@@ -206,7 +206,7 @@ fn file_with_long_short_and_hard_link_names() {
     assert_eq!(names, ["Long name.txt", "link.txt"]);
     assert_eq!(s.names[1].parent.record(), 0x40);
     assert_eq!(s.names[1].parent.sequence(), 2);
-    assert_eq!((s.size, s.allocated), (5, 0));
+    assert_eq!((s.size, s.allocated), (5, 8));
 }
 
 #[test]

@@ -15,7 +15,7 @@ use std::os::windows::ffi::OsStringExt;
 use std::os::windows::fs::{FileExt, OpenOptionsExt};
 use std::os::windows::io::AsRawHandle;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::mpsc::sync_channel;
 
 use rayon::prelude::*;
@@ -47,6 +47,8 @@ const CHUNK: usize = 8 * 1024 * 1024;
 const FIRST_USER_RECORD: u64 = 16;
 /// Directories inserted per write-lock hold, so a GUI can draw between batches.
 const DIRS_PER_BATCH: usize = 20_000;
+/// Reads in flight at once; NVMe drives need several to reach full speed.
+const READERS: usize = 4;
 
 const DRIVE_REMOVABLE: u32 = 2;
 const DRIVE_FIXED: u32 = 3;
@@ -235,16 +237,29 @@ fn record_offset(runs: &[Run], g: Geometry, record: u64) -> Option<u64> {
     None
 }
 
-/// The runs of `$MFT`'s data, following its attribute list if the MFT is very fragmented.
-fn mft_runs(volume: &File, g: Geometry) -> io::Result<(Vec<Run>, u64)> {
+/// Where `$MFT` lives on disk, and which of its records are in use.
+struct Layout {
+    /// Runs of the MFT's data, in order.
+    runs: Vec<Run>,
+    /// Bytes of MFT to read.
+    size: u64,
+    /// One bit per record, set if the record is in use. `None` if `$MFT`'s `$BITMAP` could not
+    /// be read, in which case every record is read.
+    bitmap: Option<Vec<u8>>,
+}
+
+/// The layout of `$MFT`, following its attribute list if the MFT is very fragmented.
+fn mft_layout(volume: &File, g: Geometry) -> io::Result<Layout> {
     let rec0 = read_record_at(volume, g.mft_start * g.cluster, g.record)?;
     let rec0 = FileRecord::parse(&rec0).map_err(|e| bad_data(format!("$MFT record: {e}")))?;
     let mut extents: Vec<(u64, Vec<Run>)> = Vec::new();
     let mut size = None;
     let mut list = None;
+    let mut bitmap = None;
     for a in rec0.attributes() {
         let a = a.map_err(|e| bad_data(format!("$MFT attribute: {e}")))?;
         match (a.type_code, a.body) {
+            (attr::BITMAP, body) if !a.is_named() => bitmap = read_bitmap(volume, g, body),
             (attr::DATA, Body::NonResident(n)) if !a.is_named() => {
                 if n.start_vcn == 0 {
                     size = Some(n.data_size);
@@ -291,10 +306,44 @@ fn mft_runs(volume: &File, g: Geometry) -> io::Result<(Vec<Run>, u64)> {
     extents.sort_by_key(|e| e.0);
     let runs = extents.into_iter().flat_map(|e| e.1).collect();
     let size = size.ok_or_else(|| bad_data("$MFT has no data attribute"))?;
-    Ok((runs, size.min(g.mft_valid)))
+    Ok(Layout {
+        runs,
+        size: size.min(g.mft_valid),
+        bitmap,
+    })
 }
 
-/// Byte ranges `(volume offset, length)` covering the first `total` bytes of the MFT, in order.
+/// Reads `$MFT`'s `$BITMAP`, or `None` if it can't be read.
+fn read_bitmap(volume: &File, g: Geometry, body: Body<'_>) -> Option<Vec<u8>> {
+    match body {
+        Body::Resident(v) => Some(v.to_vec()),
+        // A bitmap continued in an extension record would need the attribute list; then all
+        // records are read instead.
+        Body::NonResident(n) if n.start_vcn == 0 => {
+            let runs = decode_runlist(n.runlist).ok()?;
+            let size = n.data_size.min(n.initialized_size);
+            let covered: u64 = runs
+                .iter()
+                .map(|r| r.clusters.saturating_mul(g.cluster))
+                .sum();
+            if size > covered || size > 1 << 30 {
+                return None;
+            }
+            let mut bytes = vec![0u8; usize::try_from(size).ok()?];
+            read_stream_at(volume, &segments(&runs, g, size), &mut bytes, 0).ok()?;
+            Some(bytes)
+        }
+        Body::NonResident(_) => None,
+    }
+}
+
+/// Whether any record in `from..to` is in use. Records past the end of the bitmap count as in
+/// use, so a short bitmap never hides records.
+fn any_in_use(bitmap: &[u8], from: usize, to: usize) -> bool {
+    (from..to).any(|r| bitmap.get(r / 8).is_none_or(|b| b & (1 << (r % 8)) != 0))
+}
+
+/// Byte ranges `(volume offset, length)` covering the first `total` bytes of a stream, in order.
 /// Sparse runs (which the MFT never has in practice) come back with offset `None`.
 fn segments(runs: &[Run], g: Geometry, total: u64) -> Vec<(Option<u64>, u64)> {
     let mut out = Vec::new();
@@ -308,6 +357,37 @@ fn segments(runs: &[Run], g: Geometry, total: u64) -> Vec<(Option<u64>, u64)> {
         left -= len;
     }
     out
+}
+
+/// Fills `buf` from byte offset `pos` of a stream laid out as `segs`. Sparse parts read as zeros.
+fn read_stream_at(
+    volume: &File,
+    segs: &[(Option<u64>, u64)],
+    buf: &mut [u8],
+    pos: u64,
+) -> io::Result<()> {
+    let mut seg_start = 0u64;
+    let mut done = 0usize;
+    for &(offset, len) in segs {
+        let seg_end = seg_start + len;
+        let at = pos + done as u64;
+        if done < buf.len() && at < seg_end {
+            let skip = at - seg_start;
+            let take = usize::try_from(seg_end - at).unwrap_or(usize::MAX);
+            let take = take.min(buf.len() - done);
+            let part = &mut buf[done..done + take];
+            match offset {
+                Some(off) => read_exact_at(volume, part, off + skip)?,
+                None => part.fill(0),
+            }
+            done += take;
+        }
+        seg_start = seg_end;
+    }
+    if done < buf.len() {
+        return Err(io::ErrorKind::UnexpectedEof.into());
+    }
+    Ok(())
 }
 
 /// What one MFT slot holds after parsing.
@@ -324,51 +404,50 @@ struct Parsed {
 
 /// Reads and parses the whole MFT.
 fn read_mft(volume: &File, g: Geometry, progress: &ScanProgress) -> io::Result<Parsed> {
-    let (runs, total) = mft_runs(volume, g)?;
-    let total = total - total % g.record as u64;
+    let layout = mft_layout(volume, g)?;
+    let total = layout.size - layout.size % g.record as u64;
     let records = (total / g.record as u64) as usize;
     let mut files: Vec<Option<FileSummary>> = Vec::new();
     files.resize_with(records, || None);
     let mut extensions = Vec::new();
     let bad = AtomicU64::new(0);
-    let segs = segments(&runs, g, total);
+    let segs = segments(&layout.runs, g, total);
+    let bitmap = layout.bitmap.as_deref();
+    let per_chunk = CHUNK / g.record;
+
+    // An MFT that grew and then emptied can be mostly free records; skip windows without any.
+    let windows: Vec<usize> = (0..records)
+        .step_by(per_chunk)
+        .filter(|&first| {
+            bitmap.is_none_or(|b| any_in_use(b, first, (first + per_chunk).min(records)))
+        })
+        .collect();
+    let next = AtomicUsize::new(0);
 
     std::thread::scope(|scope| -> io::Result<()> {
-        // A reader thread keeps the disk busy while the chunk before is parsed.
-        let (tx, rx) = sync_channel::<io::Result<(usize, Vec<u8>)>>(2);
-        scope.spawn(move || {
-            let mut chunk = Vec::with_capacity(CHUNK);
-            let mut first_record = 0usize;
-            for &(offset, len) in &segs {
-                let mut done = 0u64;
-                while done < len {
+        // Reader threads keep several reads in flight while earlier chunks are parsed.
+        let (tx, rx) = sync_channel::<io::Result<(usize, Vec<u8>)>>(READERS + 1);
+        for _ in 0..READERS {
+            let tx = tx.clone();
+            let (windows, next, segs) = (&windows, &next, &segs);
+            scope.spawn(move || {
+                while let Some(&first) = windows.get(next.fetch_add(1, Ordering::Relaxed)) {
                     if progress.is_cancelled() {
                         return;
                     }
-                    let take = (len - done).min((CHUNK - chunk.len()) as u64) as usize;
-                    let start = chunk.len();
-                    chunk.resize(start + take, 0);
-                    if let Some(off) = offset
-                        && let Err(e) = read_exact_at(volume, &mut chunk[start..], off + done)
-                    {
-                        let _ = tx.send(Err(e));
+                    let end = (first + per_chunk).min(records);
+                    let mut chunk = vec![0u8; (end - first) * g.record];
+                    let pos = (first * g.record) as u64;
+                    let msg =
+                        read_stream_at(volume, segs, &mut chunk, pos).map(|()| (first, chunk));
+                    let failed = msg.is_err();
+                    if tx.send(msg).is_err() || failed {
                         return;
                     }
-                    done += take as u64;
-                    if chunk.len() == CHUNK {
-                        let n = chunk.len() / g.record;
-                        let full = std::mem::replace(&mut chunk, Vec::with_capacity(CHUNK));
-                        if tx.send(Ok((first_record, full))).is_err() {
-                            return;
-                        }
-                        first_record += n;
-                    }
                 }
-            }
-            if !chunk.is_empty() {
-                let _ = tx.send(Ok((first_record, chunk)));
-            }
-        });
+            });
+        }
+        drop(tx);
 
         for msg in rx {
             let (first, mut chunk) = msg?;
@@ -487,7 +566,9 @@ impl Children {
     }
 }
 
-fn entry(s: &FileSummary, name: &FileName, first_name: bool) -> Entry {
+/// The entry for one name of `s`, counting its size. Later names of a hard-linked file go
+/// through [`count_once`].
+fn entry(s: &FileSummary, name: &FileName) -> Entry {
     let mut flags = windows_attribute_flags(s.attributes);
     if s.is_directory {
         flags.insert(NodeFlags::DIR);
@@ -500,11 +581,8 @@ fn entry(s: &FileSummary, name: &FileName, first_name: bool) -> Entry {
     }
     let (size, allocated) = if s.is_directory || flags.contains(NodeFlags::LINK) {
         (0, 0)
-    } else if first_name {
-        (s.size, s.allocated)
     } else {
-        flags.insert(NodeFlags::HARDLINK_DUP);
-        (0, 0)
+        (s.size, s.allocated)
     };
     Entry {
         name: OsString::from_wide(&name.name),
@@ -515,7 +593,21 @@ fn entry(s: &FileSummary, name: &FileName, first_name: bool) -> Entry {
     }
 }
 
-/// Inserts everything below `root` into the tree, breadth first, in batches.
+/// Counts a file's size under the first of its names that is inserted; later names become
+/// zero-sized duplicates.
+fn count_once(e: &mut Entry, counted: &mut bool) {
+    if e.flags.contains(NodeFlags::DIR) || !std::mem::replace(counted, true) {
+        return;
+    }
+    if !e.flags.contains(NodeFlags::LINK) {
+        e.flags.insert(NodeFlags::HARDLINK_DUP);
+        e.size = 0;
+        e.allocated = 0;
+    }
+}
+
+/// Inserts everything below `root` into the tree, breadth first, in batches. Each batch's
+/// entries are built in parallel; only the insertion holds the tree's write lock.
 fn build_tree(
     tree: &SharedTree,
     progress: &ScanProgress,
@@ -526,36 +618,39 @@ fn build_tree(
     let mut counted = vec![false; files.len()];
     let root_id = tree.read().root();
     let mut queue = std::collections::VecDeque::from([(root, root_id)]);
-    let mut entries = Vec::new();
-    let mut records = Vec::new();
     let mut subdirs = Vec::new();
     while !queue.is_empty() {
         if progress.is_cancelled() {
             return;
         }
+        let batch: Vec<_> = queue.drain(..queue.len().min(DIRS_PER_BATCH)).collect();
+        let listings: Vec<(Vec<u32>, Vec<Entry>)> = batch
+            .par_iter()
+            .map(|&(dir, _)| {
+                children
+                    .of(dir)
+                    .iter()
+                    .filter_map(|&(child, k)| {
+                        let s = files[child as usize].as_ref()?;
+                        Some((child, entry(s, &s.names[usize::from(k)])))
+                    })
+                    .unzip()
+            })
+            .collect();
         let mut t = tree.write();
-        for _ in 0..DIRS_PER_BATCH {
-            let Some((dir, id)) = queue.pop_front() else {
-                break;
-            };
-            entries.clear();
-            records.clear();
-            for &(child, k) in children.of(dir) {
-                let Some(s) = files[child as usize].as_ref() else {
-                    continue;
-                };
-                let first =
-                    !s.is_directory && !std::mem::replace(&mut counted[child as usize], true);
-                let e = entry(s, &s.names[k as usize], first);
-                if e.is_traversable_dir() {
-                    records.push(child as usize);
-                }
-                entries.push(e);
+        for (&(_, id), (records, mut entries)) in batch.iter().zip(listings) {
+            for (&r, e) in records.iter().zip(&mut entries) {
+                count_once(e, &mut counted[r as usize]);
             }
             subdirs.clear();
             t.insert_listing(id, &entries, &mut subdirs);
             progress.add(entries.len() as u64, 1);
-            queue.extend(records.iter().copied().zip(subdirs.iter().copied()));
+            let traversable = records
+                .iter()
+                .zip(&entries)
+                .filter(|(_, e)| e.is_traversable_dir())
+                .map(|(&r, _)| r as usize);
+            queue.extend(traversable.zip(subdirs.iter().copied()));
         }
     }
 }
@@ -596,5 +691,7 @@ pub fn scan(tree: &SharedTree, progress: &ScanProgress) -> io::Result<()> {
             )),
         );
     }
+    // Millions of small allocations take a noticeable time to free; don't make the scan wait.
+    std::thread::spawn(move || drop(parsed));
     Ok(())
 }

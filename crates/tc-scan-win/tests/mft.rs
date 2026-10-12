@@ -151,10 +151,11 @@ fn mft_matches_win32_on_edge_cases() {
     write(&d.join("original.bin"), 50_000);
     fs::hard_link(d.join("original.bin"), d.join("link1.bin")).unwrap();
     fs::hard_link(d.join("original.bin"), d.join("a/link2.bin")).unwrap();
-    // A junction (not followed) pointing back up.
+    // A junction (not followed) pointing back up. cmd would read "/loop" in "a/loop" as a
+    // switch, so pass a backslash path.
     let out = Command::new("cmd")
         .args(["/C", "mklink", "/J"])
-        .arg(d.join("a/loop"))
+        .arg(d.join("a").join("loop"))
         .arg(d)
         .output()
         .unwrap();
@@ -162,6 +163,9 @@ fn mft_matches_win32_on_edge_cases() {
     // An alternate data stream (not counted by either scanner).
     let mut f = fs::File::create(d.join("with-stream.txt")).unwrap();
     f.write_all(b"main").unwrap();
+    // Close it: the directory index entry, which the Win32 scanner reads, only gets the new
+    // size when the handle closes, while the MFT record has it at once.
+    drop(f);
     fs::write(d.join("with-stream.txt:extra"), vec![7u8; 10_000]).unwrap();
     // Unicode and long names, and a path longer than 260 characters.
     write(&d.join("ünïcødé 日本語.txt"), 10);

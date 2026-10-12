@@ -262,6 +262,14 @@ fn access_denied_folders_are_reported_and_skipped() {
         .unwrap();
     assert!(out.status.success(), "icacls failed: {out:?}");
     let _unlock = Unlock(locked.clone(), user);
+    // With the backup privilege enabled (as elevated Git Bash/Cygwin shells do), directory
+    // opens ignore the ACL and nothing is denied.
+    if fs::read_dir(&locked).is_ok() {
+        eprintln!(
+            "access_denied_folders_are_reported_and_skipped: skipped, the deny ACE is bypassed"
+        );
+        return;
+    }
 
     for (tree, stats) in [win32_scan(dir.path()), portable_scan(dir.path())] {
         assert_eq!(stats.errors, 1);
