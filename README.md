@@ -63,6 +63,7 @@ cargo run -p gen-tree -- scratch/tree1 --seed 1 --depth 4 --fanout 4
 ```
 cargo run --release -p tc-scan-win --example scan_bench -- C:\Users   # portable vs Win32 scanner
 cargo run --release -p tc-scan-win --example open_cost -- C:\Users    # cost of opening directories
+cargo run --release -p tc-scan-win --example rel_open -- C:\Users     # full-path vs parent-relative opens
 cargo run --release -p tc-gui --example frame_bench -- C:\Users 16 low  # GUI frames, 1M rows, during a scan
 ```
 

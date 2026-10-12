@@ -24,7 +24,10 @@ Measured on this machine (8 cores, SSD, warm cache) on a 897k-entry profile fold
 reachable by any scanner that opens each directory.** On Windows, `std::fs::read_dir` already
 reads directory listings without opening the files in them, so both scanners pay the same
 per-directory open. Single-threaded, opening the 96,728 directories alone takes 7.80 s of the
-13.96 s full scan, so even a listing that cost nothing would be at most 1.8× faster. The 3×
+13.96 s full scan, so even a listing that cost nothing would be at most 1.8× faster. Opening
+each directory relative to its parent's handle (`NtOpenFile` with a root directory) instead of
+by full path saves only about 9% (9.3 s vs 8.5 s for 97,807 opens, `examples/rel_open.rs`), so
+the cost is in the kernel's open path itself, not in path parsing. The 3×
 goal moves to M5: the MFT scanner reads the file table instead of opening directories (it needs
 administrator rights). The Win32 scanner is still the default because it reports real
 allocated sizes and counts hard links once. Next up: M5, or M6/M7 if features matter more than
