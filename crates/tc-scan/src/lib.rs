@@ -124,7 +124,14 @@ impl ScanProgress {
         self.cancelled.store(true, Ordering::Relaxed);
     }
 
-    fn record_error(&self, path: &Path, err: &io::Error) {
+    /// Counts entries and directories added by a scanner that doesn't use [`DirLister`].
+    pub fn add(&self, entries: u64, dirs: u64) {
+        self.entries.fetch_add(entries, Ordering::Relaxed);
+        self.dirs.fetch_add(dirs, Ordering::Relaxed);
+    }
+
+    /// Records a directory (or other item) that could not be read.
+    pub fn record_error(&self, path: &Path, err: &io::Error) {
         self.errors.fetch_add(1, Ordering::Relaxed);
         let mut list = self.error_list.lock().unwrap_or_else(|e| e.into_inner());
         if list.len() < MAX_KEPT_ERRORS {
@@ -206,16 +213,50 @@ pub fn new_tree(root: &Path) -> io::Result<Tree> {
 
 /// Starts scanning the root of `tree` on a background thread.
 pub fn start_scan(tree: SharedTree, lister: Arc<dyn DirLister>, opts: ScanOptions) -> ScanHandle {
+    start_with(tree, move |tree, progress| {
+        run(tree, &*lister, &opts, progress);
+    })
+}
+
+/// Runs a custom scanner, such as a whole-volume reader, on a background thread. `body` fills
+/// the tree and reports through the progress counters; it should check
+/// [`ScanProgress::is_cancelled`] now and then. The handle works like one from [`start_scan`].
+pub fn start_with(
+    tree: SharedTree,
+    body: impl FnOnce(&SharedTree, &ScanProgress) + Send + 'static,
+) -> ScanHandle {
     let progress = Arc::new(ScanProgress::default());
     let p = progress.clone();
     let thread = std::thread::Builder::new()
         .name("tc-scan".into())
-        .spawn(move || run(&tree, &*lister, &opts, &p))
+        .spawn(move || {
+            let start = Instant::now();
+            body(&tree, &p);
+            p.finished.store(true, Ordering::Release);
+            ScanStats {
+                entries: p.entries(),
+                dirs: p.dirs(),
+                errors: p.errors(),
+                elapsed: start.elapsed(),
+                cancelled: p.is_cancelled(),
+            }
+        })
         .expect("failed to spawn scan thread");
     ScanHandle {
         progress,
         thread: Some(thread),
     }
+}
+
+/// Scans the root of `tree` with `lister` on the calling thread, reporting into `progress`.
+/// For custom scanners started with [`start_with`] that fall back to a lister.
+pub fn scan_into(
+    tree: &SharedTree,
+    lister: &dyn DirLister,
+    opts: &ScanOptions,
+    progress: &ScanProgress,
+) {
+    run(tree, lister, opts, progress);
 }
 
 /// Scans `root` on the calling thread and returns the finished tree.

@@ -20,6 +20,8 @@ cargo run --release -p tc-gui -- D:\projects     # scan a folder on startup
   ⬆ Up to zoom out.
 - Right-click for Show in file manager, Copy path and Delete to Recycle Bin.
 - Switch between logical Size and Allocated (on-disk) size in the toolbar.
+- On Windows, **Run as admin** restarts with administrator rights. Scans of local NTFS drives
+  then read the file table (MFT) directly, which is much faster than listing every folder.
 
 Command line:
 
@@ -28,6 +30,7 @@ treecraft scan C:\Users --depth 2 --top 10
 treecraft scan D:\ --json --depth 3 > report.json
 treecraft scan . --scanner portable --allocated --errors
 treecraft scan C:\ --low-priority                # leave the CPU to other programs
+treecraft scan C:\ --scanner mft                 # read the MFT (administrator terminal only)
 ```
 
 ## Layout
@@ -56,6 +59,14 @@ Generate a test tree:
 
 ```
 cargo run -p gen-tree -- scratch/tree1 --seed 1 --depth 4 --fanout 4
+```
+
+Fuzz the NTFS parser (needs nightly Rust and `cargo install cargo-fuzz`; on Windows, first add
+the folder containing Visual Studio's `clang_rt.asan_dynamic-x86_64.dll` to `PATH`):
+
+```
+cargo +nightly fuzz run ntfs_record -- -max_total_time=300
+cargo +nightly fuzz run ntfs_runlist -- -max_total_time=120
 ```
 
 ## Benchmarks

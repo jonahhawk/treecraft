@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, RichText};
 use tc_model::{NodeId, SortKey, format_count, format_size};
-use tc_scan::{ScanHandle, ScanOptions, ScanProgress, ScanStats, SharedTree, new_tree, start_scan};
+use tc_scan::{ScanHandle, ScanOptions, ScanProgress, ScanStats, SharedTree, new_tree};
 use tc_scan_win::{Drive, ScannerKind};
 
 use crate::platform::show_in_file_manager;
@@ -68,6 +68,10 @@ pub struct App {
     deleting: Option<PendingDelete>,
     message: Option<(String, bool)>,
     show_errors: bool,
+    /// Running with administrator rights, so the MFT scanner can be used.
+    elevated: bool,
+    /// Close the window on the next frame (after relaunching elevated).
+    quit: bool,
 }
 
 impl App {
@@ -92,6 +96,8 @@ impl App {
             deleting: None,
             message: None,
             show_errors: false,
+            elevated: tc_scan_win::is_elevated(),
+            quit: false,
         };
         if initial_path.is_some() {
             app.start_scan();
@@ -111,19 +117,24 @@ impl App {
         };
         let root_id = tree.root();
         let shared = SharedTree::new(tree);
-        let lister = tc_scan_win::lister(self.scanner);
-        let scanner = lister.name();
         // Below-normal priority keeps frames smooth while the scan saturates the CPU.
         let opts = ScanOptions {
             low_priority: true,
             ..ScanOptions::default()
         };
-        let handle = start_scan(shared.clone(), lister, opts);
+        let started = match tc_scan_win::start(shared.clone(), self.scanner, opts) {
+            Ok(s) => s,
+            Err(e) => {
+                self.message = Some((format!("Cannot scan {}: {e}", root.display()), true));
+                return;
+            }
+        };
+        let handle = started.handle;
         self.session = Some(Session {
             tree: shared,
             progress: handle.progress().clone(),
             handle: Some(handle),
-            scanner,
+            scanner: started.scanner,
             started: Instant::now(),
             stats: None,
         });
@@ -133,6 +144,26 @@ impl App {
         self.treemap_root = Some(root_id);
         self.message = None;
         self.show_errors = false;
+    }
+
+    /// Relaunches with administrator rights, scanning the current folder, and closes this window.
+    fn restart_elevated(&mut self) {
+        #[cfg(windows)]
+        match crate::platform::relaunch_elevated(self.path_input.trim()) {
+            Ok(true) => {
+                self.stop_scan();
+                self.quit = true;
+            }
+            Ok(false) => {
+                self.message = Some((
+                    "Still running without administrator rights (the prompt was declined)".into(),
+                    false,
+                ));
+            }
+            Err(e) => {
+                self.message = Some((format!("Could not restart as administrator: {e}"), true));
+            }
+        }
     }
 
     fn stop_scan(&mut self) {
@@ -264,7 +295,7 @@ impl App {
             let edit = ui.add(
                 egui::TextEdit::singleline(&mut self.path_input)
                     .hint_text("Folder to scan")
-                    .desired_width((ui.available_width() - 330.0).max(160.0)),
+                    .desired_width((ui.available_width() - 430.0).max(160.0)),
             );
             let enter = edit.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             if scanning {
@@ -277,6 +308,7 @@ impl App {
             egui::ComboBox::from_id_salt("scanner")
                 .selected_text(match self.scanner {
                     ScannerKind::Auto => "Auto",
+                    ScannerKind::Mft => "MFT",
                     ScannerKind::Win32 => "Win32",
                     ScannerKind::Portable => "Portable",
                 })
@@ -284,12 +316,28 @@ impl App {
                 .show_ui(ui, |ui| {
                     ui.selectable_value(&mut self.scanner, ScannerKind::Auto, "Auto");
                     if cfg!(windows) {
+                        ui.add_enabled_ui(self.elevated, |ui| {
+                            ui.selectable_value(&mut self.scanner, ScannerKind::Mft, "MFT")
+                                .on_disabled_hover_text("Needs administrator rights");
+                        });
                         ui.selectable_value(&mut self.scanner, ScannerKind::Win32, "Win32");
                     }
                     ui.selectable_value(&mut self.scanner, ScannerKind::Portable, "Portable");
                 })
                 .response
-                .on_hover_text("Scanner used for the next scan");
+                .on_hover_text(
+                    "Scanner used for the next scan. Auto reads the NTFS file table (MFT) \
+                     when running as administrator, and lists folders otherwise.",
+                );
+            if cfg!(windows) && !self.elevated {
+                let restart = ui.button("Run as admin").on_hover_text(
+                    "Restart with administrator rights. Scans of local NTFS drives then \
+                         read the file table directly, which is several times faster.",
+                );
+                if restart.clicked() {
+                    self.restart_elevated();
+                }
+            }
             ui.separator();
             if ui
                 .selectable_label(!self.allocated, "Size")
@@ -379,6 +427,10 @@ impl App {
                 if let Some(total) = total {
                     ui.label(total);
                 }
+                if self.elevated {
+                    ui.separator();
+                    ui.label("Administrator");
+                }
             },
         );
         if open_errors {
@@ -421,6 +473,12 @@ impl App {
                     ui.colored_label(
                         ui.visuals().warn_fg_color,
                         "Another delete is still running.",
+                    );
+                }
+                if self.elevated {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        "Running as administrator: protected system files can be deleted too.",
                     );
                 }
                 ui.add_space(8.0);
@@ -480,6 +538,9 @@ impl eframe::App for App {
         self.poll_scan();
         self.poll_delete();
         let ctx = ui.ctx().clone();
+        if self.quit {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
 
         egui::Panel::top("toolbar").show(ui, |ui| {
             ui.add_space(4.0);

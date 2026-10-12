@@ -11,6 +11,12 @@ publish.workspace = true
 tc-model.workspace = true
 tc-scan.workspace = true
 
+[target.'cfg(windows)'.dependencies.tc-ntfs]
+workspace = true
+
+[target.'cfg(windows)'.dependencies.rayon]
+workspace = true
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
     "Wdk_Foundation",
@@ -20,6 +26,7 @@ windows-sys = { workspace = true, features = [
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
     "Win32_System_Ioctl",
+    "Win32_System_Threading",
 ] }
 
 [dev-dependencies]

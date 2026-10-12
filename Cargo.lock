@@ -3285,6 +3285,7 @@ dependencies = [
  "tc-scan",
  "tc-scan-win",
  "trash",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -3309,7 +3310,9 @@ dependencies = [
 name = "tc-scan-win"
 version = "0.1.0"
 dependencies = [
+ "rayon",
  "tc-model",
+ "tc-ntfs",
  "tc-scan",
  "tempfile",
  "windows-sys 0.61.2",

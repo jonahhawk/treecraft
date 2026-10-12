@@ -35,9 +35,26 @@ closed to standard users: opening `\\.\C:` for reading is denied, and on a handl
 fewer rights `FSCTL_GET_NTFS_VOLUME_DATA` and `FSCTL_ENUM_USN_DATA` fail and raw reads are
 denied (`examples/volume_access.rs`). The 3×
 goal moves to M5: the MFT scanner reads the file table instead of opening directories (it needs
-administrator rights). The Win32 scanner is still the default because it reports real
-allocated sizes and counts hard links once. Next up: M5, or M6/M7 if features matter more than
-speed.
+administrator rights). Without administrator rights the Win32 scanner is used, because it
+reports real allocated sizes and counts hard links once.
+
+**M5 (MFT scanner), in progress:** written but not yet run against a real volume, because that
+needs an elevated session.
+- `tc-ntfs` has a pure, `forbid(unsafe_code)` parser for boot sectors, fixups, FILE records,
+  attributes, attribute lists and runlists. Its 12 unit tests use hand-built records, and
+  20,000 randomly corrupted records produce errors without panicking.
+- `tc-scan-win/src/mft.rs` reads `$MFT` in 8 MiB chunks on a reader thread, parses them in
+  parallel and builds the tree breadth-first. If the MFT scan fails, the scan continues with
+  the Win32 scanner and the error list says why.
+- `--scanner auto` and the GUI's Auto choice use the MFT when elevated on a local NTFS drive.
+  The GUI has a "Run as admin" button (UAC relaunch).
+- `cargo-fuzz` targets are in `fuzz/`. Local runs found no crashes: 15.1M records in 5 minutes
+  and 5.9M runlists in 2 minutes. CI runs each target briefly.
+- Still open, all needing an elevated run:
+  - `tc-scan-win/tests/mft.rs`: differential tests against the Win32 scanner. They skip
+    themselves without administrator rights.
+  - The C:\ benchmark (`scan_bench` includes `mft` when elevated).
+  - The 24 h fuzz run.
 
 ---
 

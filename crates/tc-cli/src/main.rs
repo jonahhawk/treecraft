@@ -8,7 +8,7 @@ use anyhow::Context;
 use clap::{Parser, Subcommand, ValueEnum};
 use serde_json::{Value, json};
 use tc_model::{NodeFlags, NodeId, SortKey, Tree, format_count, format_size};
-use tc_scan::{ScanOptions, ScanStats, SharedTree, new_tree, start_scan};
+use tc_scan::{ScanOptions, ScanStats, SharedTree, new_tree};
 use tc_scan_win::ScannerKind;
 
 #[derive(Debug, Parser)]
@@ -28,7 +28,8 @@ enum Command {
 struct ScanArgs {
     /// Root directory to scan.
     root: PathBuf,
-    /// Directory lister: auto, win32 or portable.
+    /// Scanner: auto, mft (Windows, administrator), win32 or portable. Auto uses the MFT when
+    /// running as administrator on a local NTFS drive.
     #[arg(long, default_value = "auto")]
     scanner: ScannerKind,
     /// How many levels below the root to print.
@@ -89,14 +90,15 @@ fn run_scan(args: &ScanArgs) -> anyhow::Result<()> {
     let tree =
         new_tree(&args.root).with_context(|| format!("cannot scan {}", args.root.display()))?;
     let shared = SharedTree::new(tree);
-    let lister = tc_scan_win::lister(args.scanner);
-    let lister_name = lister.name();
     let mut opts = ScanOptions::default();
     if let Some(t) = args.threads {
         opts.threads = t;
     }
     opts.low_priority = args.low_priority;
-    let handle = start_scan(shared.clone(), lister, opts);
+    let started = tc_scan_win::start(shared.clone(), args.scanner, opts)
+        .with_context(|| format!("cannot use the {:?} scanner", args.scanner))?;
+    let lister_name = started.scanner;
+    let handle = started.handle;
 
     let show_progress = std::io::stderr().is_terminal();
     let progress = handle.progress().clone();

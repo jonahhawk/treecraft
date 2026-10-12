@@ -48,7 +48,7 @@ pub struct Win32Lister {
 const SHARDS: usize = 16;
 const BUF_BYTES: usize = 64 * 1024;
 /// Reparse tags with this bit point somewhere else (symlinks, junctions); they are not followed.
-const NAME_SURROGATE_BIT: u32 = 0x2000_0000;
+pub(crate) const NAME_SURROGATE_BIT: u32 = 0x2000_0000;
 /// Seconds between 1601-01-01 (FILETIME epoch) and 1970-01-01.
 const FILETIME_UNIX_OFFSET: i64 = 11_644_473_600;
 
@@ -363,7 +363,7 @@ fn entry<T: DirInfo>(info: &T, name: OsString) -> Entry {
 }
 
 /// The file system name (e.g. "NTFS") of the volume containing `path`.
-fn file_system_name(path: &Path) -> Option<String> {
+pub(crate) fn file_system_name(path: &Path) -> Option<String> {
     let wide = to_wide(path);
     let mut volume = [0u16; 1024];
     // SAFETY: `wide` is NUL-terminated and `volume` is a writable buffer of the given length.
@@ -392,7 +392,7 @@ fn file_system_name(path: &Path) -> Option<String> {
     Some(String::from_utf16_lossy(&fs[..n]))
 }
 
-fn filetime_to_unix(ft: i64) -> i64 {
+pub(crate) fn filetime_to_unix(ft: i64) -> i64 {
     if ft <= 0 {
         0
     } else {
@@ -401,7 +401,7 @@ fn filetime_to_unix(ft: i64) -> i64 {
 }
 
 /// Converts an absolute path to the `\\?\` form, which lifts the 260-character limit.
-fn verbatim(path: &Path) -> PathBuf {
+pub(crate) fn verbatim(path: &Path) -> PathBuf {
     let s = path.as_os_str().encode_wide().collect::<Vec<u16>>();
     let starts =
         |p: &str| s.len() >= p.len() && s.iter().zip(p.encode_utf16()).all(|(a, b)| *a == b);
@@ -426,7 +426,7 @@ fn verbatim(path: &Path) -> PathBuf {
     PathBuf::from(OsString::from_wide(&out))
 }
 
-fn to_wide(s: &Path) -> Vec<u16> {
+pub(crate) fn to_wide(s: &Path) -> Vec<u16> {
     s.as_os_str().encode_wide().chain(Some(0)).collect()
 }
 

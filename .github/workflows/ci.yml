@@ -35,3 +35,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: EmbarkStudios/cargo-deny-action@v2
+
+  # A short fuzz run of the NTFS parser on every change; long runs are done by hand.
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: cargo fuzz run ntfs_record -- -max_total_time=60
+      - run: cargo fuzz run ntfs_runlist -- -max_total_time=30

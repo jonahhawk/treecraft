@@ -21,5 +21,14 @@ tc-scan.workspace = true
 tc-scan-win.workspace = true
 trash.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    # SHELLEXECUTEINFOW has a registry-key field, so ShellExecuteExW needs this feature too.
+    "Win32_System_Registry",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
 [lints]
 workspace = true

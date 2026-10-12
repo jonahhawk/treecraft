@@ -2,3 +2,7 @@
 **/*.rs.bk
 *.tcs
 /scratch/
+/fuzz/target
+/fuzz/corpus
+/fuzz/artifacts
+/fuzz/coverage

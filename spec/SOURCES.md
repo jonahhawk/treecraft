@@ -20,3 +20,10 @@ Not allowed: decompiled or disassembled code, copied UI text, icons, help text o
 | 2026-10-11 | Microsoft Learn: GetVolumePathNameW, GetVolumeInformationW | https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getvolumeinformationw | Detecting NTFS before relying on file IDs |
 | 2026-10-11 | Microsoft Learn: SetThreadPriority | https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-setthreadpriority | Below-normal scan threads in the GUI |
 | 2026-10-11 | Microsoft Learn: FSCTL_SET_SPARSE, FSCTL_SET_COMPRESSION | https://learn.microsoft.com/windows/win32/api/winioctl/ni-winioctl-fsctl_set_sparse | Creating sparse and compressed files in the edge-case tests |
+| 2026-10-11 | Microsoft Learn: NtOpenFile, OBJECT_ATTRIBUTES | https://learn.microsoft.com/windows/win32/api/winternl/nf-winternl-ntopenfile | Parent-relative open experiment (`rel_open`) |
+| 2026-10-11 | Microsoft Learn: FSCTL_GET_NTFS_VOLUME_DATA, NTFS_VOLUME_DATA_BUFFER | https://learn.microsoft.com/windows/win32/api/winioctl/ni-winioctl-fsctl_get_ntfs_volume_data | MFT location, record and cluster size |
+| 2026-10-11 | Microsoft Learn: GetVolumeNameForVolumeMountPointW | https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getvolumenameforvolumemountpointw | Opening the volume device of a scan root |
+| 2026-10-11 | Microsoft Learn: GetTokenInformation, TOKEN_ELEVATION | https://learn.microsoft.com/windows/win32/api/securitybaseapi/nf-securitybaseapi-gettokeninformation | Detecting administrator rights |
+| 2026-10-11 | Microsoft Learn: ShellExecuteExW, SHELLEXECUTEINFOW ("runas" verb) | https://learn.microsoft.com/windows/win32/api/shellapi/nf-shellapi-shellexecuteexw | "Run as admin" relaunch |
+| 2026-10-11 | Microsoft Learn: CommandLineToArgvW (argument quoting rules) | https://learn.microsoft.com/windows/win32/api/shellapi/nf-shellapi-commandlinetoargvw | Quoting the folder passed to the relaunched process |
+| 2026-10-11 | Linux-NTFS project documentation: FILE records, attributes, fixups, runlists, attribute lists, boot sector | https://flatcap.github.io/linux-ntfs/ntfs/ | `tc-ntfs` on-disk layouts |

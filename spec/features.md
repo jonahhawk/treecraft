@@ -35,7 +35,15 @@ Track both the logical file size and the space allocated on disk.
 
 ### 1.4 Fast NTFS scan (P1)
 When running elevated on a local NTFS volume, read the MFT directly instead of walking
-directories. Falls back to normal scanning on any error.
+directories. Falls back to normal scanning on any error, and the error list says why.
+- When not elevated, the GUI offers "Run as admin". It relaunches with the UAC prompt and
+  scans the same folder; declining the prompt keeps the current window. The app never asks for
+  elevation on startup.
+- Elevated, the status bar says "Administrator", and the delete confirmation warns that
+  protected files can be deleted too.
+- NTFS metadata files (records 0–15, such as `$MFT` and `$Extend`) are not shown, matching what
+  directory listings show. Folders a standard user can't open (for example System Volume
+  Information) are included, because the MFT has no per-folder access checks.
 - *Accept:* produces the same tree as the normal scanner on the test volumes.
 
 ### 1.5 Refresh (P1) and live updates (P2)

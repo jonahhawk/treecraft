@@ -1,0 +1,31 @@
+[package]
+name = "treecraft-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+tc-ntfs = { path = "../crates/tc-ntfs" }
+
+# Kept out of the main workspace: cargo-fuzz needs nightly and its own build settings.
+[workspace]
+members = ["."]
+
+[[bin]]
+name = "ntfs_record"
+path = "fuzz_targets/ntfs_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ntfs_runlist"
+path = "fuzz_targets/ntfs_runlist.rs"
+test = false
+doc = false
+bench = false
