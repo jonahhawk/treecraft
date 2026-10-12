@@ -93,7 +93,7 @@ fn main() {
     let frame = |i: usize, view: &mut TreeView, treemap: &mut TreemapView| -> Duration {
         let rows = view.row_count().max(1);
         // Alternate between jumping far away and small wheel-sized steps.
-        let row = if i % 2 == 0 {
+        let row = if i.is_multiple_of(2) {
             (i * 7919) % rows
         } else {
             ((i - 1) * 7919) % rows + 3

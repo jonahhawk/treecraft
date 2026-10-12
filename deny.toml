@@ -4,6 +4,12 @@ all-features = true
 
 [advisories]
 version = 2
+ignore = [
+    # ttf-parser is unmaintained, with no fixed release. It comes in through egui and winit's
+    # font rendering (ab_glyph) and only parses fonts bundled with the app or the system theme.
+    # Revisit when egui moves to skrifa.
+    { id = "RUSTSEC-2026-0192", reason = "unmaintained, no alternative in egui yet; parses trusted fonts only" },
+]
 
 [licenses]
 version = 2
@@ -31,6 +37,8 @@ ignore = true
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Workspace crates depend on each other by path without a version; none are published.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
