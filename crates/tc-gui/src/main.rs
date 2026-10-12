@@ -2,11 +2,6 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod app;
-mod platform;
-mod tree_view;
-mod treemap_view;
-
 fn main() -> eframe::Result {
     let initial_path = std::env::args_os().nth(1).map(std::path::PathBuf::from);
     let options = eframe::NativeOptions {
@@ -19,6 +14,6 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Treecraft",
         options,
-        Box::new(move |_cc| Ok(Box::new(app::App::new(initial_path)))),
+        Box::new(move |_cc| Ok(Box::new(tc_gui::app::App::new(initial_path)))),
     )
 }

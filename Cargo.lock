@@ -3312,6 +3312,7 @@ dependencies = [
  "rayon",
  "tc-model",
  "tempfile",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

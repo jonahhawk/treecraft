@@ -4,7 +4,7 @@
 //! as possible (Bruls, Huizing and van Wijk's squarified algorithm). [`layout`] applies it
 //! recursively to a [`Tree`].
 
-use tc_model::{NodeFlags, NodeId, Tree};
+use tc_model::{NodeId, Tree};
 
 /// An axis-aligned rectangle.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -164,6 +164,9 @@ pub struct LayoutOptions {
     pub padding: f32,
     /// Stop after this many cells.
     pub max_cells: usize,
+    /// Stop after examining this many children in total. Bounds the cost of a layout when
+    /// many folders hold thousands of items too small to draw.
+    pub max_visits: usize,
 }
 
 impl Default for LayoutOptions {
@@ -173,37 +176,57 @@ impl Default for LayoutOptions {
             min_side: 6.0,
             padding: 2.0,
             max_cells: 30_000,
+            max_visits: 300_000,
         }
     }
 }
+
+/// Children whose share of their parent is below this many square pixels are not drawn; they
+/// are laid out together as one undrawn remainder, so they still take up their space.
+const MIN_CELL_AREA: f64 = 1.0;
 
 /// Lays out the subtree under `root` in `rect`. Parents come before their children in the
 /// result, so painting in order draws children on top and hit-testing in reverse finds the
 /// deepest cell first.
 pub fn layout(tree: &Tree, root: NodeId, rect: Rect, opts: &LayoutOptions) -> Vec<Cell> {
     let mut cells = Vec::new();
-    // Breadth-first, so when max_cells is reached every level is filled before going deeper.
+    let mut visits = 0usize;
+    let weight = |c: NodeId| {
+        if opts.allocated {
+            tree.node(c).allocated()
+        } else {
+            tree.node(c).size()
+        }
+    };
+    // Breadth-first, so when a limit is reached every level is filled before going deeper.
     let mut queue = std::collections::VecDeque::from([(root, rect, 0u32)]);
     while let Some((id, r, depth)) = queue.pop_front() {
-        if cells.len() >= opts.max_cells {
+        if cells.len() >= opts.max_cells || visits >= opts.max_visits {
             break;
         }
-        let children: Vec<NodeId> = tree
-            .children(id)
-            .filter(|&c| !tree.node(c).flags().contains(NodeFlags::REMOVED))
-            .collect();
-        let weights: Vec<u64> = children
-            .iter()
-            .map(|&c| {
-                if opts.allocated {
-                    tree.node(c).allocated()
-                } else {
-                    tree.node(c).size()
-                }
-            })
-            .collect();
         let inner = if depth == 0 { r } else { r.inset(opts.padding) };
-        for (&c, cr) in children.iter().zip(squarify(&weights, inner)) {
+        let total: u64 = weight(id);
+        if total == 0 || inner.area() <= 0.0 {
+            continue;
+        }
+        // Keep only children big enough to see; the rest become one undrawn remainder.
+        let min_weight = (MIN_CELL_AREA * total as f64 / f64::from(inner.area())) as u64;
+        let mut shown: Vec<NodeId> = Vec::new();
+        let mut weights: Vec<u64> = Vec::new();
+        let mut rest = 0u64;
+        for c in tree.children(id) {
+            visits += 1;
+            let w = weight(c);
+            if w >= min_weight.max(1) {
+                shown.push(c);
+                weights.push(w);
+            } else {
+                rest += w;
+            }
+        }
+        weights.push(rest);
+        let rects = squarify(&weights, inner);
+        for (&c, cr) in shown.iter().zip(rects) {
             if cr.w < 1.0 || cr.h < 1.0 {
                 continue;
             }
@@ -230,7 +253,7 @@ pub fn layout(tree: &Tree, root: NodeId, rect: Rect, opts: &LayoutOptions) -> Ve
 mod tests {
     use std::path::Path;
 
-    use tc_model::Entry;
+    use tc_model::{Entry, NodeFlags};
 
     use super::*;
 
@@ -293,6 +316,39 @@ mod tests {
             squarify(&[0, 0], Rect::new(0.0, 0.0, 10.0, 10.0))
                 .iter()
                 .all(|c| c.area() == 0.0)
+        );
+    }
+
+    #[test]
+    fn sub_pixel_children_keep_their_space_but_are_not_drawn() {
+        let mut t = Tree::new(Path::new("/r"));
+        let mut entries = vec![Entry {
+            name: "big".into(),
+            size: 1_000_000,
+            allocated: 0,
+            mtime: 0,
+            flags: NodeFlags::empty(),
+        }];
+        entries.extend((0..10_000).map(|i| Entry {
+            name: format!("tiny{i}").into(),
+            size: 100,
+            allocated: 0,
+            mtime: 0,
+            flags: NodeFlags::empty(),
+        }));
+        t.insert_listing(t.root(), &entries, &mut Vec::new());
+        let cells = layout(
+            &t,
+            t.root(),
+            Rect::new(0.0, 0.0, 100.0, 100.0),
+            &LayoutOptions::default(),
+        );
+        // Each tiny file would get 0.05 px², so only "big" is drawn, with its true share (50%).
+        assert_eq!(cells.len(), 1);
+        assert!(
+            approx(cells[0].rect.area(), 5_000.0),
+            "area {}",
+            cells[0].rect.area()
         );
     }
 

@@ -16,3 +16,7 @@ Not allowed: decompiled or disassembled code, copied UI text, icons, help text o
 | 2026-10-11 | Microsoft Learn: file attribute constants (RECALL_ON_DATA_ACCESS etc.) | https://learn.microsoft.com/windows/win32/fileio/file-attribute-constants | Cloud placeholder detection |
 | 2026-10-11 | Microsoft Learn: maximum path length limitation | https://learn.microsoft.com/windows/win32/fileio/maximum-file-path-limitation | `\\?\` long-path handling |
 | 2026-10-11 | Bruls, Huizing, van Wijk, "Squarified Treemaps" (2000) | https://www.win.tue.nl/~vanwijk/stm.pdf | Treemap layout algorithm |
+| 2026-10-11 | Microsoft Learn: FILE_ID_EXTD_DIR_INFO | https://learn.microsoft.com/windows/win32/api/winbase/ns-winbase-file_id_extd_dir_info | File IDs for hard-link dedup |
+| 2026-10-11 | Microsoft Learn: GetVolumePathNameW, GetVolumeInformationW | https://learn.microsoft.com/windows/win32/api/fileapi/nf-fileapi-getvolumeinformationw | Detecting NTFS before relying on file IDs |
+| 2026-10-11 | Microsoft Learn: SetThreadPriority | https://learn.microsoft.com/windows/win32/api/processthreadsapi/nf-processthreadsapi-setthreadpriority | Below-normal scan threads in the GUI |
+| 2026-10-11 | Microsoft Learn: FSCTL_SET_SPARSE, FSCTL_SET_COMPRESSION | https://learn.microsoft.com/windows/win32/api/winioctl/ni-winioctl-fsctl_set_sparse | Creating sparse and compressed files in the edge-case tests |

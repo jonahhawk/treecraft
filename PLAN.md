@@ -5,12 +5,30 @@ Goal: a Windows-first disk space analyzer with roughly the capabilities of TreeS
 too, but some features are Windows-only.
 
 **Progress (2026-10-11):** M0 is done, and so is the MVP: M1, M2, M3 and the treemap part of M4.
-Measured on this machine with a warm cache: a scan of 896k entries takes about 3.4 s in both
-the CLI and the GUI (roughly 260k entries/s), and throughput levels off at 8 threads.
-Deviation from M2's exit criterion: the Win32 scanner is not faster than `std::fs` on Windows
-(both use directory listings without opening files). It is still the default because it
-reports real allocated sizes. Next up: M5 (MFT scanner), or M6/M7 if features matter more
-than speed.
+Measured on this machine (8 cores, SSD, warm cache) on a 897k-entry profile folder:
+
+- Scan: 3.2–3.3 s with either scanner at normal priority (about 275k entries/s); throughput
+  levels off at 8 threads. Benchmarks: `tc-scan-win/examples/scan_bench.rs` and `open_cost.rs`.
+- Hard links count once on NTFS (Win32 scanner, by file ID): the folder totals 124.7 GB
+  instead of 128.8 GB with the portable scanner, matching `fsutil hardlink list`.
+- Windows edge-case suite (§4): `tc-scan-win/tests/edge_cases.rs`, 12 tests, all passing. The
+  symlink case needs the symlink privilege and skips itself without it.
+- M3: `tc-gui/examples/frame_bench.rs` expands 1,001,000 synthetic rows, runs a real scan into
+  the same tree and renders at 60 Hz with a scroll jump every frame. With the GUI's
+  below-normal scan priority: median 5.6 ms, p99 15.7 ms, 0.6% of frames over 16.7 ms during
+  the scan, none after. At normal priority 66% of frames miss the budget because the scan
+  saturates every core, so the GUI scans at below-normal priority and the CLI at normal
+  (`--low-priority` opts in). Below-normal makes a scan on its own about 1.6× slower.
+
+**Deviation from M2's exit criterion (≥3× faster than the portable walker): not met, and not
+reachable by any scanner that opens each directory.** On Windows, `std::fs::read_dir` already
+reads directory listings without opening the files in them, so both scanners pay the same
+per-directory open. Single-threaded, opening the 96,728 directories alone takes 7.80 s of the
+13.96 s full scan, so even a listing that cost nothing would be at most 1.8× faster. The 3×
+goal moves to M5: the MFT scanner reads the file table instead of opening directories (it needs
+administrator rights). The Win32 scanner is still the default because it reports real
+allocated sizes and counts hard links once. Next up: M5, or M6/M7 if features matter more than
+speed.
 
 ---
 
@@ -225,10 +243,10 @@ Durations assume one experienced Rust developer.
 |---|---|---|---|
 | M0 | Setup & spec (1 wk) | Install the toolchain (`rustup`, MSVC target). Workspace, CI (GitHub Actions on Windows/Linux/macOS: fmt, clippy `-D warnings`, test, `cargo-deny`). Write `spec/` feature docs and ADRs. Build `gen-tree`. | CI green; spec reviewed |
 | M1 | Model + portable scan + CLI (2–3 wk) | `tc-model` arena, aggregation, portable parallel walker, `treecraft scan` and text/JSON output | Totals match `du -sb` / PowerShell `Measure-Object` on generated trees; 1M-entry tree scanned with <80 B/entry RSS |
-| M2 | Windows enumerator (2 wk) | `FileIdExtdDirectoryInfo` scanner, allocated size, hard-link dedup by file ID, reparse points, cloud placeholders untouched, long paths, error capture | Passes the Windows edge-case suite (§4); ≥3× faster than the portable walker on C:\ |
+| M2 | Windows enumerator (2 wk) | `FileIdExtdDirectoryInfo` scanner, allocated size, hard-link dedup by file ID, reparse points, cloud placeholders untouched, long paths, error capture | Passes the Windows edge-case suite (§4); ~~≥3× faster than the portable walker on C:\~~ (at most 1.8× is possible while opening directories; moved to M5, see Progress) |
 | M3 | GUI MVP (3–4 wk) | eframe app, live tree table, sorting, % bars, unit switching, drive picker, cancel, open-in-Explorer, delete to Recycle Bin | Smooth (≥60 fps) scrolling at 1M rows while a scan is running |
 | M4 | Visualisations (2–3 wk) | Squarified treemap with drill-down and hover, pie/bar chart, extensions, age histogram, top-N | Treemap of 1M files lays out in <200 ms |
-| M5 | MFT scanner (3–4 wk) | `tc-ntfs` parser + fuzzing, raw volume reader, elevation flow, automatic fallback | Results identical to the M2 scanner on test VHDs; C:\ full scan well under 10 s on SSD; 24 h fuzz run with no crashes |
+| M5 | MFT scanner (3–4 wk) | `tc-ntfs` parser + fuzzing, raw volume reader, elevation flow, automatic fallback | Results identical to the M2 scanner on test VHDs; C:\ full scan well under 10 s on SSD and ≥3× faster than the M2 scanner; 24 h fuzz run with no crashes |
 | M6 | Snapshots, compare, export (2–3 wk) | `.tcs` format, open offline, diff view, CSV/JSON/XLSX/HTML export, `report`/`diff` CLI | Round-trip test: scan, save, load gives an identical tree; exports open cleanly in Excel/LibreOffice |
 | M7 | Search & duplicates (2–3 wk) | Filter language/UI, duplicate finder, bulk actions on results | Duplicate finder matches a reference `fdupes` run on test data |
 | M8 | Hardening & release (2 wk) | Perf pass, memory caps, settings persistence, crash reporting (local logs), MSI via `cargo-wix`, code signing, winget manifest, docs | v1.0 tagged |

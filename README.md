@@ -27,6 +27,7 @@ Command line:
 treecraft scan C:\Users --depth 2 --top 10
 treecraft scan D:\ --json --depth 3 > report.json
 treecraft scan . --scanner portable --allocated --errors
+treecraft scan C:\ --low-priority                # leave the CPU to other programs
 ```
 
 ## Layout
@@ -56,6 +57,16 @@ Generate a test tree:
 ```
 cargo run -p gen-tree -- scratch/tree1 --seed 1 --depth 4 --fanout 4
 ```
+
+## Benchmarks
+
+```
+cargo run --release -p tc-scan-win --example scan_bench -- C:\Users   # portable vs Win32 scanner
+cargo run --release -p tc-scan-win --example open_cost -- C:\Users    # cost of opening directories
+cargo run --release -p tc-gui --example frame_bench -- C:\Users 16 low  # GUI frames, 1M rows, during a scan
+```
+
+Results on the development machine are in [PLAN.md](PLAN.md) under Progress.
 
 ## License
 

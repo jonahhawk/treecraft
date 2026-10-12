@@ -1,6 +1,6 @@
 //! The expandable tree table.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Align, Color32, Layout, RichText, Sense};
@@ -20,11 +20,37 @@ pub struct TreeView {
     expanded: HashSet<NodeId>,
     pub sort: SortKey,
     pub reverse: bool,
-    rows: Vec<(NodeId, u16)>,
+    rows: Vec<Row>,
     built_generation: Option<u64>,
     built_at: Instant,
     dirty: bool,
     scroll_to: Option<NodeId>,
+    scroll_offset: Option<f32>,
+    /// The visible rows below each expanded node (not including the node itself), reused while
+    /// the node's totals are unchanged. Rebuilding a million rows then only re-sorts folders
+    /// that changed and copies the rest.
+    segments: HashMap<NodeId, (Signature, Vec<Row>)>,
+    /// Nodes expanded or collapsed since the last rebuild. Their segments, and their
+    /// ancestors', no longer match what is visible.
+    invalid: Vec<NodeId>,
+}
+
+/// A visible row: the node and its depth below the root.
+type Row = (NodeId, u16);
+
+/// A node's totals. Adding or removing anything below a node changes at least one of them,
+/// so an unchanged signature means nothing in its subtree changed.
+type Signature = (u64, u64, u32, u32);
+
+fn signature(tree: &Tree, id: NodeId) -> Signature {
+    let n = tree.node(id);
+    (n.size(), n.allocated(), n.files(), n.dirs())
+}
+
+impl Default for TreeView {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TreeView {
@@ -38,6 +64,9 @@ impl TreeView {
             built_at: Instant::now(),
             dirty: true,
             scroll_to: None,
+            scroll_offset: None,
+            segments: HashMap::new(),
+            invalid: Vec::new(),
         }
     }
 
@@ -46,6 +75,8 @@ impl TreeView {
         self.expanded.clear();
         self.expanded.insert(root);
         self.rows.clear();
+        self.segments.clear();
+        self.invalid.clear();
         self.built_generation = None;
         self.dirty = true;
         self.scroll_to = None;
@@ -55,14 +86,22 @@ impl TreeView {
         if !self.expanded.remove(&id) {
             self.expanded.insert(id);
         }
+        self.invalid.push(id);
         self.dirty = true;
+    }
+
+    pub fn expand(&mut self, id: NodeId) {
+        if self.expanded.insert(id) {
+            self.invalid.push(id);
+            self.dirty = true;
+        }
     }
 
     /// Expands every ancestor of `id` and scrolls it into view.
     pub fn reveal(&mut self, tree: &Tree, id: NodeId) {
         let mut cur = tree.parent(id);
         while let Some(p) = cur {
-            self.expanded.insert(p);
+            self.expand(p);
             cur = tree.parent(p);
         }
         self.scroll_to = Some(id);
@@ -76,11 +115,22 @@ impl TreeView {
             self.sort = key;
             self.reverse = false;
         }
+        self.segments.clear();
         self.dirty = true;
     }
 
     pub fn mark_dirty(&mut self) {
         self.dirty = true;
+    }
+
+    /// Scrolls the table to `y` points from the top on the next frame.
+    pub fn set_scroll_offset(&mut self, y: f32) {
+        self.scroll_offset = Some(y);
+    }
+
+    /// Number of rows currently shown (expanded nodes and their children).
+    pub fn row_count(&self) -> usize {
+        self.rows.len()
     }
 
     fn rebuild_if_needed(&mut self, tree: &Tree) {
@@ -89,18 +139,42 @@ impl TreeView {
         if !(self.dirty || changed && due) {
             return;
         }
-        self.rows.clear();
-        let mut stack = vec![(tree.root(), 0u16)];
-        while let Some((id, depth)) = stack.pop() {
-            self.rows.push((id, depth));
-            if self.expanded.contains(&id) {
-                let children = tree.sorted_children(id, self.sort, self.reverse);
-                stack.extend(children.into_iter().rev().map(|c| (c, depth + 1)));
+        for id in std::mem::take(&mut self.invalid) {
+            let mut cur = Some(id);
+            while let Some(c) = cur {
+                self.segments.remove(&c);
+                cur = tree.parent(c);
             }
+        }
+        let root = tree.root();
+        self.rows.clear();
+        self.rows.push((root, 0));
+        if self.expanded.contains(&root) {
+            self.ensure_segment(tree, root, 0);
+            self.rows.extend_from_slice(&self.segments[&root].1);
         }
         self.built_generation = Some(tree.generation());
         self.built_at = Instant::now();
         self.dirty = false;
+    }
+
+    /// Makes sure the cached segment of expanded node `id` (at `depth`) is current.
+    fn ensure_segment(&mut self, tree: &Tree, id: NodeId, depth: u16) {
+        let sig = signature(tree, id);
+        if self.segments.get(&id).is_some_and(|(s, _)| *s == sig) {
+            return;
+        }
+        let children = tree.sorted_children(id, self.sort, self.reverse);
+        let mut segment = Vec::with_capacity(children.len());
+        for c in children {
+            segment.push((c, depth + 1));
+            // Only folders can be expanded; skipping the set lookup for files matters at 1M rows.
+            if tree.node(c).is_dir() && self.expanded.contains(&c) {
+                self.ensure_segment(tree, c, depth + 1);
+                segment.extend_from_slice(&self.segments[&c].1);
+            }
+        }
+        self.segments.insert(id, (sig, segment));
     }
 
     /// Whether rows are waiting for a rebuild that is throttled.
@@ -134,6 +208,9 @@ impl TreeView {
             if let Some(i) = self.rows.iter().position(|&(id, _)| id == target) {
                 table = table.scroll_to_row(i, Some(Align::Center));
             }
+        }
+        if let Some(y) = self.scroll_offset.take() {
+            table = table.vertical_scroll_offset(y);
         }
 
         let sort = self.sort;
@@ -357,5 +434,98 @@ pub fn context_menu(ui: &mut egui::Ui, tree: &Tree, id: NodeId, actions: &mut Ve
     {
         actions.push(Action::AskDelete(id));
         ui.close();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use tc_model::Entry;
+
+    use super::*;
+
+    fn entry(name: &str, size: u64, dir: bool) -> Entry {
+        Entry {
+            name: name.into(),
+            size,
+            allocated: size,
+            mtime: 0,
+            flags: if dir {
+                NodeFlags::DIR
+            } else {
+                NodeFlags::empty()
+            },
+        }
+    }
+
+    /// The rows the view should show, built from scratch.
+    fn expected(view: &TreeView, tree: &Tree) -> Vec<Row> {
+        fn walk(view: &TreeView, tree: &Tree, id: NodeId, depth: u16, out: &mut Vec<Row>) {
+            out.push((id, depth));
+            if view.expanded.contains(&id) {
+                for c in tree.sorted_children(id, view.sort, view.reverse) {
+                    walk(view, tree, c, depth + 1, out);
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(view, tree, tree.root(), 0, &mut out);
+        out
+    }
+
+    fn check(view: &mut TreeView, tree: &Tree) {
+        view.mark_dirty();
+        view.rebuild_if_needed(tree);
+        assert_eq!(view.rows, expected(view, tree));
+    }
+
+    #[test]
+    fn cached_rows_match_a_full_rebuild() {
+        let mut tree = Tree::new(Path::new("/r"));
+        let root = tree.root();
+        let mut dirs = Vec::new();
+        tree.insert_listing(
+            root,
+            &[
+                entry("a", 0, true),
+                entry("b", 0, true),
+                entry("f", 5, false),
+            ],
+            &mut dirs,
+        );
+        let (a, b) = (dirs[0], dirs[1]);
+        let mut sub = Vec::new();
+        tree.insert_listing(a, &[entry("x", 10, false), entry("s", 0, true)], &mut sub);
+        tree.insert_listing(b, &[entry("y", 1, false)], &mut Vec::new());
+
+        let mut view = TreeView::new();
+        view.reset(root);
+        check(&mut view, &tree);
+
+        view.expand(a);
+        view.expand(sub[0]);
+        view.expand(b);
+        check(&mut view, &tree);
+
+        // A scan adds files deep inside an expanded folder: only that branch changes.
+        tree.insert_listing(sub[0], &[entry("deep", 100, false)], &mut Vec::new());
+        check(&mut view, &tree);
+
+        // The new size moves "a" ahead of other rows; collapsing hides its subtree.
+        view.toggle(sub[0]);
+        check(&mut view, &tree);
+        view.toggle(a);
+        check(&mut view, &tree);
+        view.toggle(a);
+        check(&mut view, &tree);
+
+        view.set_sort(SortKey::Name);
+        check(&mut view, &tree);
+        view.set_sort(SortKey::Name);
+        check(&mut view, &tree);
+
+        tree.remove(b);
+        check(&mut view, &tree);
     }
 }

@@ -49,6 +49,9 @@ struct ScanArgs {
     /// Worker threads (default: twice the CPU count, 4 to 32).
     #[arg(long)]
     threads: Option<usize>,
+    /// Run scan threads at below-normal priority (slower, but leaves the CPU to other programs).
+    #[arg(long)]
+    low_priority: bool,
     /// List directories that could not be read.
     #[arg(long)]
     errors: bool,
@@ -92,6 +95,7 @@ fn run_scan(args: &ScanArgs) -> anyhow::Result<()> {
     if let Some(t) = args.threads {
         opts.threads = t;
     }
+    opts.low_priority = args.low_priority;
     let handle = start_scan(shared.clone(), lister, opts);
 
     let show_progress = std::io::stderr().is_terminal();

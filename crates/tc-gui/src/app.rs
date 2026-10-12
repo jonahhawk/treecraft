@@ -30,6 +30,7 @@ pub enum Action {
 }
 
 /// One scanned (or scanning) root.
+#[derive(Debug)]
 struct Session {
     tree: SharedTree,
     handle: Option<ScanHandle>,
@@ -45,12 +46,14 @@ impl Session {
     }
 }
 
+#[derive(Debug)]
 struct PendingDelete {
     id: NodeId,
     path: PathBuf,
     result: Receiver<Result<(), String>>,
 }
 
+#[derive(Debug)]
 pub struct App {
     drives: Vec<Drive>,
     path_input: String,
@@ -110,7 +113,12 @@ impl App {
         let shared = SharedTree::new(tree);
         let lister = tc_scan_win::lister(self.scanner);
         let scanner = lister.name();
-        let handle = start_scan(shared.clone(), lister, ScanOptions::default());
+        // Below-normal priority keeps frames smooth while the scan saturates the CPU.
+        let opts = ScanOptions {
+            low_priority: true,
+            ..ScanOptions::default()
+        };
+        let handle = start_scan(shared.clone(), lister, opts);
         self.session = Some(Session {
             tree: shared,
             progress: handle.progress().clone(),

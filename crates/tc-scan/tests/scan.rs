@@ -69,7 +69,10 @@ fn background_scan_matches_blocking_scan() {
     let handle = start_scan(
         shared.clone(),
         Arc::new(PortableLister::new()),
-        ScanOptions { threads: 2 },
+        ScanOptions {
+            threads: 2,
+            ..ScanOptions::default()
+        },
     );
     let stats = handle.join();
     assert_eq!(stats.entries, 7);

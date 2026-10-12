@@ -21,6 +21,12 @@ pub struct TreemapView {
     built_at: Instant,
 }
 
+impl Default for TreemapView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TreemapView {
     pub fn new() -> Self {
         Self {

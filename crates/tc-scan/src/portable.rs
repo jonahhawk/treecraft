@@ -148,3 +148,25 @@ pub fn unix_secs(t: SystemTime) -> i64 {
         Err(e) => -(e.duration().as_secs() as i64),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn windows_attributes_map_to_flags() {
+        // Cloud placeholders: OneDrive and similar set one of these on files not stored locally.
+        for cloud in [0x1000, 0x4_0000, 0x40_0000] {
+            assert!(
+                windows_attribute_flags(cloud).contains(NodeFlags::CLOUD),
+                "{cloud:#x}"
+            );
+        }
+        assert!(windows_attribute_flags(0x2).contains(NodeFlags::HIDDEN));
+        assert!(windows_attribute_flags(0x4).contains(NodeFlags::HIDDEN));
+        assert!(windows_attribute_flags(0x200).contains(NodeFlags::SPARSE));
+        assert!(windows_attribute_flags(0x800).contains(NodeFlags::COMPRESSED));
+        // Plain archive/normal attributes set nothing.
+        assert_eq!(windows_attribute_flags(0x20 | 0x80), NodeFlags::empty());
+    }
+}

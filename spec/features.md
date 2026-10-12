@@ -97,9 +97,13 @@ every feature that doesn't depend on Windows APIs.
 
 ## Known limitations (MVP)
 
-- The Win32 scanner reads sizes from directory listings, which don't include link counts, so a
-  hard-linked file is counted under each of its names. The portable scanner deduplicates hard
-  links on Linux and macOS. The MFT scanner (M5) will fix this on Windows.
+- On NTFS the Win32 scanner counts a hard-linked file once, under the first name it reaches
+  (the order depends on thread scheduling); the other names show size 0. On other Windows file
+  systems, and with the portable scanner on Windows, every name is counted. The portable
+  scanner deduplicates hard links on Linux and macOS.
+- Alternate data streams are not counted; only the main stream's size is shown (P1).
+- The GUI scans at below-normal CPU priority so the window stays smooth; a GUI scan is
+  therefore up to about 1.6× slower than the same scan in the CLI.
 - Space used by directory indexes and NTFS metadata is not counted.
 - Deleting is disabled while a scan is running, because removing a subtree mid-scan would let
   the scanner add totals back for it.
