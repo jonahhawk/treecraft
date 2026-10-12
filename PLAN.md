@@ -27,7 +27,10 @@ per-directory open. Single-threaded, opening the 96,728 directories alone takes 
 13.96 s full scan, so even a listing that cost nothing would be at most 1.8× faster. Opening
 each directory relative to its parent's handle (`NtOpenFile` with a root directory) instead of
 by full path saves only about 9% (9.3 s vs 8.5 s for 97,807 opens, `examples/rel_open.rs`), so
-the cost is in the kernel's open path itself, not in path parsing. The 3×
+the cost is in the kernel's open path itself, not in path parsing. Whole-volume shortcuts are
+closed to standard users: opening `\\.\C:` for reading is denied, and on a handle opened with
+fewer rights `FSCTL_GET_NTFS_VOLUME_DATA` and `FSCTL_ENUM_USN_DATA` fail and raw reads are
+denied (`examples/volume_access.rs`). The 3×
 goal moves to M5: the MFT scanner reads the file table instead of opening directories (it needs
 administrator rights). The Win32 scanner is still the default because it reports real
 allocated sizes and counts hard links once. Next up: M5, or M6/M7 if features matter more than
