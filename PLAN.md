@@ -21,7 +21,10 @@ Measured on this machine (8 cores, SSD, warm cache) on a 897k-entry profile fold
   (`--low-priority` opts in). Below-normal makes a scan on its own about 1.6× slower.
 
 **Deviation from M2's exit criterion (≥3× faster than the portable walker): not met, and not
-reachable by any scanner that opens each directory.** On Windows, `std::fs::read_dir` already
+reachable by any scanner that opens each directory.** On all of C:\ (1.44M entries, warm
+cache, median of 3) the portable walker takes 6.98 s and the Win32 scanner 6.81 s (1.03×); the
+Win32 total is 266.9 GB instead of 288.4 GB because hard links are counted once. The
+`FileIdBothDirectoryInfo` fallback takes 16.9 s there, so it stays a fallback only. On Windows, `std::fs::read_dir` already
 reads directory listings without opening the files in them, so both scanners pay the same
 per-directory open. Single-threaded, opening the 96,728 directories alone takes 7.80 s of the
 13.96 s full scan, so even a listing that cost nothing would be at most 1.8× faster. Opening
